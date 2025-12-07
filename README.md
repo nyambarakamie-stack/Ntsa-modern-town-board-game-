@@ -1,38 +1,49 @@
-# Driving school MTB GAME
+# Futuristic NTSA MTB Simulator
 
-A modern, interactive "Motor Town Board" driving school trainer focused on MTB (Motor Traffic Board) scenarios.
-This project is a browser-based training game intended to teach road rules, parking, roundabouts and vehicle handling for motorcycles, cars, buses and trailers.
+## Overview
 
-Features
-- Drag-and-drop vehicle placement on a town board background
-- Multiple vehicle sizes & level-based challenges
-- Snap-to-position targets and scoring system
-- Works inside Telegram Web Apps (defensive handling) and in a normal browser
-- Responsive canvas with high-DPI support
+Dive into **Futuristic NTSA MTB Simulator** – an interactive game for mastering Kenya's National Transport and Safety Authority (NTSA) driving test. Navigate neon-lit cyberpunk streets on a virtual Model Town Board (MTB), learning traffic rules in a gamified, sci-fi world. Signup grants one free game session!
 
-Getting started
-1. Clone the repo:
-   git clone https://github.com/nyambarakamie/driving-school-mtb-game.git
-2. Open `index.html` in a browser (or host with a static server).
-3. Optional: run inside a Telegram Web App for enhanced integration.
+## Key Features
 
-File layout (suggested)
-- index.html         — main game UI and logic
-- assets/            — images, sprites, audio
-- docs/              — design docs, level definitions
-- README.md
-- LICENSE
+- **Interactive Scenarios**: Control vehicles in dynamic NTSA simulations with point-and-click controls.
+- **Futuristic Design**: HD graphics and colorful backgrounds for an immersive experience.
+- **Signup Perks**: Free first game; track progress, earn badges, and unlock levels.
+- **Modes**: Practice, timed challenges, and multiplayer.
+- **Feedback System**: Instant neon pop-ups with tips to improve.
 
-Possible next steps
-- Add local assets in `assets/` for reliability and privacy
-- Move configuration (levels, snap positions) to JSON files
-- Improve visuals and accessibility, add sound and animations
-- Add CI to validate builds and run basic tests
-- Publish a GitHub Pages demo
+## MTB Layout Chart
+Visualize the standard Model Town Board used in NTSA tests for better scenario understanding.
 
-License
-- Suggested: MIT (changeable)
 
-Contact
-- Maintainer: nyambarakamie
-- Project: Driving school MTB GAME
+
+
+## Sample NTSA Scenarios
+
+Experience these interactive MTB scenarios in neon-glowing cyber streets:
+
+1. **Roundabout Entry Challenge**: In a bustling cyber roundabout where holographic vehicles converge, prioritize incoming traffic from the right. Select your lane and enter without collision – no stopping, hooting, or overtaking allowed!
+
+2. **Zebra Crossing Dilemma**: Approach an uncontrolled neon-striped zebra crossing (no lights, no police). Yield to holographic pedestrians; fail to stop, and trigger a game-over alert.
+
+3. **Overtaking Protocol**: On a dual carriageway with glowing yellow lines, decide when to overtake: avoid junctions, no-overtaking signs, and roundabouts. Use forward gear for precision maneuvers.
+
+4. **Traffic Light Test**: At a futuristic intersection, green means go – unless halted by a virtual police bot. Respond to changing neon signals in real-time for bonus points.
+
+5. **Parking Puzzle**: Navigate angle parking in a neon-lit lot: park from the furthest end using forward gear, exit in reverse. Only saloon hover-cars allowed – master it to level up!
+
+## Installation
+
+1. Clone repo: `git clone https://github.com/yourusername/ntsa-mtb-simulator.git`
+2. Install deps: `npm install`
+3. Start: `npm start`
+
+## Usage
+
+- Signup on homepage for free game.
+- Navigate MTB with mouse/keyboard; answer questions via actions.
+- Subscribe for unlimited access and advanced neon themes.
+
+## License
+
+MIT – Customize and share freely! 🚀
