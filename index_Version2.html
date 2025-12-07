@@ -1,24 +1,29 @@
+```html
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>NTSA MTB Trainer Game</title>
+  <title>Futuristic NTSA MTB Trainer</title>
   <style>
     html,body { height:100%; margin:0; }
-    body { margin: 0; overflow: hidden; background: #228B22; font-family: Arial, sans-serif; }
+    body { margin: 0; overflow: hidden; background: radial-gradient(circle at center, #0a0a1a 0%, #000 100%); font-family: 'Arial Black', sans-serif; }
     #game { display: block; cursor: grab; width:100%; height:100%; }
     #game.dragging { cursor: grabbing; }
-    #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 10px; z-index: 10; }
-    #challenge { font-size: 18px; margin-bottom: 10px; max-width: 320px; }
-    #score { font-size: 24px; }
-    #level { font-size: 16px; }
-    button { background: #4CAF50; color: white; border: none; padding: 8px 10px; margin: 4px; border-radius: 5px; cursor: pointer; }
-    button:hover { background: #45a049; }
+    #ui { position: absolute; top: 10px; left: 10px; color: #00ffff; text-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 20px #00ffff; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 15px; border: 2px solid #00ffff; z-index: 10; }
+    #challenge { font-size: 20px; margin-bottom: 15px; max-width: 350px; text-shadow: 0 0 7px #ff00ff, 0 0 14px #ff00ff; }
+    #score { font-size: 28px; text-shadow: 0 0 10px #ffff00, 0 0 20px #ffff00; }
+    #level { font-size: 18px; text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00; }
+    button { background: linear-gradient(#00ffff, #008888); color: #000; border: none; padding: 10px 15px; margin: 5px; border-radius: 8px; cursor: pointer; text-shadow: 0 0 5px #fff; box-shadow: 0 0 10px #00ffff; }
+    button:hover { background: linear-gradient(#ffff00, #888800); box-shadow: 0 0 15px #ffff00; }
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 20; display: none; justify-content: center; align-items: center; flex-direction: column; color: #00ffff; text-shadow: 0 0 10px #00ffff; }
+    #overlay img { max-width: 80%; max-height: 50%; border: 3px solid #00ffff; box-shadow: 0 0 20px #00ffff; }
+    #overlay p { font-size: 18px; max-width: 80%; text-align: center; margin: 20px; }
+    #closeOverlay { background: linear-gradient(#ff0000, #880000); box-shadow: 0 0 10px #ff0000; }
   </style>
 </head>
 <body>
-  <canvas id="game" aria-label="NTSA MTB Trainer canvas"></canvas>
+  <canvas id="game" aria-label="Futuristic NTSA MTB Trainer canvas"></canvas>
 
   <div id="ui" role="region" aria-label="game controls">
     <div id="score">Score: 0</div>
@@ -31,20 +36,24 @@
     </div>
   </div>
 
+  <div id="overlay">
+    <img id="theoryImg" src="" alt="Real life theory image">
+    <p id="theoryText"></p>
+    <button id="closeOverlay">Continue</button>
+  </div>
+
   <script>
-    // Safe access to Telegram WebApp object (if running inside Telegram WebApp)
+    // Safe access to Telegram WebApp object
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 
-    // Try to initialize Telegram WebApp safely (guard against it not being present)
+    // Initialize Telegram WebApp safely
     try {
       if (tg) {
         tg.expand && tg.expand();
         tg.ready && tg.ready();
-        // Configure main button as a share/send-score button.
         if (tg.MainButton) {
           tg.MainButton.setText && tg.MainButton.setText('Share Score');
           tg.MainButton.show && tg.MainButton.show();
-          // Send score to the bot when pressed (sendData is supported by Web Apps)
           tg.MainButton.onClick && tg.MainButton.onClick(() => {
             try { tg.sendData && tg.sendData(JSON.stringify({ type: 'share_score', score })); }
             catch (e) { console.warn('tg.sendData failed', e); }
@@ -55,14 +64,13 @@
       console.warn('Telegram WebApp initialization error', e);
     }
 
-    // Haptic feedback helper (guarded)
+    // Haptic feedback helper
     function hapticNotification(kind) {
       try {
         if (!tg || !tg.HapticFeedback) return;
         if (typeof tg.HapticFeedback.notificationOccurred === 'function') {
           tg.HapticFeedback.notificationOccurred(kind);
         } else if (typeof tg.HapticFeedback.impactOccurred === 'function') {
-          // fallback for different implementations
           tg.HapticFeedback.impactOccurred(kind === 'success' ? 'light' : 'medium');
         }
       } catch (e) { /* ignore */ }
@@ -75,33 +83,54 @@
     let currentLevel = 0;
     let dragging = false;
     let dragOffset = { x: 0, y: 0 };
-    let playerVehicle = { x: 100, y: 100, type: 'moto', color: '#FF0000' };
+    let playerVehicle = { x: 100, y: 100, type: 'moto', img: null };
     let otherVehicles = [];
     let targetPos = null;
     let snapPositions = [];
+    let guideLines = false; // For hint
+
+    // Vehicle images
+    const vehicleImages = {
+      moto: new Image(),
+      car: new Image(),
+      bus: new Image(),
+      trailer: new Image()
+    };
+    vehicleImages.moto.src = 'https://is1-ssl.mzstatic.com/image/thumb/Purple127/v4/01/f1/20/01f120df-4590-2520-ea36-950f6c0268ea/pr_source.png/1200x630wa.png';
+    vehicleImages.car.src = 'https://www.shutterstock.com/shutterstock/photos/1668238267/display_1500/stock-photo-race-car-sport-icon-top-view-speed-auto-champion-red-vehicle-bolide-rally-prix-flat-game-1668238267.jpg';
+    vehicleImages.bus.src = 'https://www.shutterstock.com/image-illustration/bus-top-view-icon-yellow-260nw-1261890928.jpg';
+    vehicleImages.trailer.src = 'https://png.pngtree.com/png-clipart/20250102/original/pngtree-white-cargo-truck-from-above-png-image_19405371.png';
+
+    // Real life theory images and texts
+    const theoryData = [
+      { img: 'https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=1030635762026430', text: 'In real life, always give way to traffic from the right at roundabouts.' },
+      { img: 'https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=1139793638342159', text: 'Stop for pedestrians at zebra crossings to ensure safety.' },
+      { img: 'https://i.ytimg.com/vi/Ss_BXhHZ8Qs/sddefault.jpg', text: 'Overtake only when safe on dual carriageways, checking mirrors and signals.' },
+      { img: 'https://meadhunt.com/wp-content/uploads/road-rail-inspections-760x428-1.jpg', text: 'Obey traffic lights: Green means go if clear.' },
+      { img: 'https://cdn.ama.ab.ca/amaabcaprod/content/social/de-cars-in-angled-parking-lot.jpg', text: 'Angle park from the furthest spot using forward gear.' }
+    ];
 
     // Responsive canvas
     function resize() {
-      // Use devicePixelRatio to keep canvas sharp on high-DPI displays
       const dpr = window.devicePixelRatio || 1;
-      const width = Math.max(window.innerWidth, 320);
-      const height = Math.max(window.innerHeight, 240);
+      const width = window.innerWidth;
+      const height = window.innerHeight;
       canvas.style.width = width + 'px';
       canvas.style.height = height + 'px';
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      updateSnapPositions(); // recompute snap points when size changes
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
+      updateSnapPositions();
     }
     window.addEventListener('resize', resize);
     resize();
 
-    // Background image (keep remote, but guard draw until loaded)
+    // Background image (HD)
     const bgImg = new Image();
     bgImg.crossOrigin = "anonymous";
-    bgImg.src = 'https://pbs.twimg.com/media/ELA4E0wXkAAMxii.jpg';
+    bgImg.src = 'https://i.ytimg.com/vi/l_IioZvpmSc/maxresdefault.jpg';
 
-    // Compute snap positions based on canvas CSS size (not pixel buffer)
+    // Update snap positions based on client size
     function updateSnapPositions() {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
@@ -123,107 +152,98 @@
       ];
     }
 
-    // Levels and challenges
+    // Levels and challenges (expanded with more)
     const levels = ['moto', 'car', 'bus', 'trailer'];
     const levelNames = ['Motorcycle', 'Saloon Car', 'Bus', 'Trailer'];
 
     const challenges = {
       0: [
-        { desc: 'Place motorcycle in angle parking (shortest route).', target: 8, others: [] },
-        { desc: 'Behind car on minor road.', target: 6, others: [{ type: 'car', pos: 7 }] },
-        { desc: 'Enter roundabout lane 1.', target: 4, others: [] }
+        { desc: 'Place motorcycle in angle parking (shortest route).', target: 8, others: [], theory: 4 },
+        { desc: 'Behind car on minor road.', target: 6, others: [{ type: 'car', pos: 7 }], theory: 1 },
+        { desc: 'Enter roundabout lane 1.', target: 4, others: [], theory: 0 }
       ],
       1: [
-        { desc: 'Park saloon in flush parking (reverse sim).', target: 10, others: [] },
-        { desc: 'Overtake to lane 2 on major rd.', target: 1, others: [{ type: 'car', pos: 0 }] },
-        { desc: 'Exit roundabout no lane change.', target: 3, others: [] }
+        { desc: 'Park saloon in flush parking (reverse sim).', target: 10, others: [], theory: 4 },
+        { desc: 'Overtake to lane 2 on major rd.', target: 1, others: [{ type: 'car', pos: 0 }], theory: 2 },
+        { desc: 'Exit roundabout no lane change.', target: 3, others: [], theory: 0 }
       ],
       2: [
-        { desc: 'Bus to one-way behind trailer.', target: 7, others: [{ type: 'trailer', pos: 9 }] },
-        { desc: 'Give way at junction.', target: 12, others: [] },
-        { desc: 'No parking on yellow kerb.', target: 2, others: [] }
+        { desc: 'Bus to one-way behind trailer.', target: 7, others: [{ type: 'trailer', pos: 9 }], theory: 3 },
+        { desc: 'Give way at junction.', target: 12, others: [], theory: 1 },
+        { desc: 'No parking on yellow kerb.', target: 2, others: [], theory: 4 }
       ],
       3: [
-        { desc: 'Trailer to flush parking only (last option).', target: 10, others: [] },
-        { desc: 'Longest correct route to minor rd.', target: 6, others: [{ type: 'bus', pos: 5 }] },
-        { desc: 'No tight turns, behind bus.', target: 11, others: [{ type: 'bus', pos: 13 }] }
+        { desc: 'Trailer to flush parking only (last option).', target: 10, others: [], theory: 4 },
+        { desc: 'Longest correct route to minor rd.', target: 6, others: [{ type: 'bus', pos: 5 }], theory: 2 },
+        { desc: 'No tight turns, behind bus.', target: 11, others: [{ type: 'bus', pos: 13 }], theory: 0 }
       ]
     };
 
     let currentChallenge = 0;
 
-    // Draw helpers
+    // Draw background fitted
     function drawBg() {
-      // draw background only when image is available
-      if (bgImg && bgImg.complete && bgImg.naturalWidth) {
-        ctx.drawImage(bgImg, 0, 0, canvas.clientWidth, canvas.clientHeight);
+      if (bgImg.complete && bgImg.naturalWidth) {
+        const canvasRatio = canvas.clientWidth / canvas.clientHeight;
+        const imgRatio = bgImg.width / bgImg.height;
+        let drawWidth = canvas.clientWidth;
+        let drawHeight = canvas.clientHeight;
+        let offsetX = 0;
+        let offsetY = 0;
+        if (imgRatio > canvasRatio) {
+          drawWidth = canvas.clientHeight * imgRatio;
+          offsetX = (canvas.clientWidth - drawWidth) / 2;
+        } else {
+          drawHeight = canvas.clientWidth / imgRatio;
+          offsetY = (canvas.clientHeight - drawHeight) / 2;
+        }
+        ctx.drawImage(bgImg, offsetX, offsetY, drawWidth, drawHeight);
       } else {
-        // fallback plain background
-        ctx.fillStyle = '#2b8a2b';
+        ctx.fillStyle = '#001100';
         ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       }
     }
 
+    // Draw vehicle using image
     function drawVehicle(v, x, y, selected = false) {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.shadowColor = selected ? 'yellow' : 'black';
-      ctx.shadowBlur = 10;
-      const size = { moto: 20, car: 30, bus: 40, trailer: 50 }[v.type] || 30;
-      ctx.fillStyle = v.color || '#FF0000';
-      if (v.type === 'moto') {
-        ctx.fillRect(-10, -5, 20, 10);
-        ctx.fillStyle = 'black';
-        ctx.beginPath();
-        ctx.arc(-8, 0, 4, 0, Math.PI * 2);
-        ctx.arc(8, 0, 4, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (v.type === 'car') {
-        ctx.fillRect(-15, -8, 30, 16);
-        ctx.fillStyle = 'black';
-        ctx.beginPath();
-        ctx.arc(-10, 8, 6, 0, Math.PI * 2);
-        ctx.arc(10, 8, 6, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (v.type === 'bus') {
-        ctx.fillRect(-20, -10, 40, 20);
-        ctx.fillStyle = 'black';
-        ctx.beginPath();
-        ctx.arc(-15, 12, 8, 0, Math.PI * 2);
-        ctx.arc(15, 12, 8, 0, Math.PI * 2);
-        ctx.fill();
-      } else { // trailer
-        ctx.fillRect(-25, -12, 50, 24); // cab
-        ctx.fillRect(-10, 12, 35, 30); // trailer
-        ctx.fillStyle = 'black';
-        ctx.beginPath();
-        ctx.arc(-20, 10, 8, 0, Math.PI * 2);
-        ctx.arc(5, 40, 10, 0, Math.PI * 2);
-        ctx.fill();
+      const img = vehicleImages[v.type];
+      if (img.complete) {
+        const size = { moto: 40, car: 60, bus: 80, trailer: 100 }[v.type] || 60;
+        ctx.save();
+        ctx.translate(x, y);
+        if (selected) {
+          ctx.shadowColor = '#00ffff';
+          ctx.shadowBlur = 15;
+        }
+        ctx.drawImage(img, -size / 2, -size / 2, size, size);
+        ctx.restore();
       }
-      ctx.restore();
     }
 
+    // Draw snap with neon glow
     function drawSnap(pos, isTarget = false) {
       ctx.beginPath();
-      ctx.fillStyle = isTarget ? 'rgba(0,160,0,0.9)' : 'rgba(255,255,0,0.5)';
-      ctx.arc(pos.x, pos.y, 15, 0, Math.PI * 2);
+      ctx.fillStyle = isTarget ? 'rgba(0,255,0,0.7)' : 'rgba(255,255,0,0.4)';
+      ctx.arc(pos.x, pos.y, 20, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#00ffff';
+      ctx.shadowBlur = 10;
       ctx.stroke();
-      ctx.fillStyle = 'white';
-      ctx.font = '12px Arial';
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#00ffff';
+      ctx.font = '14px Arial Black';
       ctx.textAlign = 'center';
-      ctx.fillText((pos.label || '').slice(0, 3), pos.x, pos.y + 4);
+      ctx.fillText((pos.label || '').slice(0, 3), pos.x, pos.y + 5);
     }
 
-    // Simple animation to target (linear)
+    // Animate to target with easing
     let animProgress = 0;
     function animateToTarget(startX, startY, endX, endY, cb) {
       animProgress = 0;
       function step() {
-        animProgress += 0.06;
+        animProgress += 0.04;
         if (animProgress >= 1) {
           playerVehicle.x = endX;
           playerVehicle.y = endY;
@@ -231,61 +251,69 @@
           cb && cb();
           return;
         }
-        playerVehicle.x = startX + (endX - startX) * animProgress;
-        playerVehicle.y = startY + (endY - startY) * animProgress;
+        const ease = 1 - Math.pow(1 - animProgress, 3); // cubic ease in
+        playerVehicle.x = startX + (endX - startX) * ease;
+        playerVehicle.y = startY + (endY - startY) * ease;
         requestAnimationFrame(step);
       }
       requestAnimationFrame(step);
     }
 
+    // Show theory overlay
+    function showTheory(index) {
+      const data = theoryData[index % theoryData.length];
+      document.getElementById('theoryImg').src = data.img;
+      document.getElementById('theoryText').textContent = data.text;
+      document.getElementById('overlay').style.display = 'flex';
+    }
+
+    document.getElementById('closeOverlay').addEventListener('click', () => {
+      document.getElementById('overlay').style.display = 'none';
+      nextChallenge();
+    });
+
+    // Next challenge
     function nextChallenge() {
       const lvlChallenges = challenges[currentLevel];
       if (!lvlChallenges || !lvlChallenges.length) return;
-      const lvl = lvlChallenges[currentChallenge];
-      // start position
+      const chal = lvlChallenges[currentChallenge];
       playerVehicle.x = canvas.clientWidth * 0.05;
       playerVehicle.y = canvas.clientHeight * 0.5;
       playerVehicle.type = levels[currentLevel];
-      playerVehicle.color = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00'][currentLevel];
-      otherVehicles = lvl.others.map(o => {
+      otherVehicles = chal.others.map(o => {
         const pos = snapPositions[o.pos] || { x: canvas.clientWidth * 0.9, y: canvas.clientHeight * 0.5 };
-        return { ...o, x: pos.x, y: pos.y, color: '#888' };
+        return { ...o, x: pos.x, y: pos.y };
       });
-      targetPos = snapPositions[lvl.target] || null;
-      document.getElementById('challenge').textContent = lvl.desc;
-      // advance pointer for next call
+      targetPos = snapPositions[chal.target] || null;
+      document.getElementById('challenge').textContent = chal.desc;
       currentChallenge = (currentChallenge + 1) % lvlChallenges.length;
     }
 
+    // Check drop
     function checkDrop(x, y) {
-      // find nearest snap
       const nearest = snapPositions.reduce((closest, pos) => {
         const dist = Math.hypot(x - pos.x, y - pos.y);
         return dist < closest.dist ? { pos, dist } : closest;
       }, { pos: null, dist: Infinity });
 
-      if (nearest.pos && nearest.dist < 30) {
+      if (nearest.pos && nearest.dist < 40) {
         if (targetPos && Math.hypot(nearest.pos.x - targetPos.x, nearest.pos.y - targetPos.y) < 20) {
-          // Correct placement
-          score += 10 * (currentLevel + 1);
+          score += 20 * (currentLevel + 1);
           hapticNotification('success');
           document.getElementById('score').textContent = `Score: ${score}`;
           animateToTarget(playerVehicle.x, playerVehicle.y, targetPos.x, targetPos.y, () => {
-            // small delay then next challenge
-            setTimeout(nextChallenge, 600);
+            setTimeout(() => showTheory(challenges[currentLevel][(currentChallenge - 1 + challenges[currentLevel].length) % challenges[currentLevel].length].theory), 500);
           });
           return;
         } else {
           hapticNotification('error');
         }
       }
-
-      // Wrong: reset player to starting lane
-      playerVehicle.x = canvas.clientWidth * 0.05;
-      playerVehicle.y = canvas.clientHeight * 0.5;
+      // Reset to start
+      animateToTarget(playerVehicle.x, playerVehicle.y, canvas.clientWidth * 0.05, canvas.clientHeight * 0.5);
     }
 
-    // Pointer handling (pointer events unify mouse/touch)
+    // Pointer events
     canvas.addEventListener('pointerdown', (e) => {
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -316,50 +344,71 @@
       }
     });
 
-    // UI buttons
+    // Buttons
     document.getElementById('resetBtn').addEventListener('click', () => {
       nextChallenge();
     });
     document.getElementById('nextLevelBtn').addEventListener('click', () => {
-      currentLevel = Math.min(3, currentLevel + 1);
+      currentLevel = (currentLevel + 1) % 4;
       currentChallenge = 0;
       document.getElementById('level').textContent = `Level: ${levelNames[currentLevel]}`;
       nextChallenge();
     });
     document.getElementById('hintBtn').addEventListener('click', () => {
-      // show hint; monetize later with Telegram Stars / payments API if desired
-      alert('Hint: Use the shortest correct route. Avoid tight turns for larger vehicles.');
+      alert('Hint: Follow the shortest safe route. Larger vehicles need more space.');
+      guideLines = !guideLines; // Toggle guides
       hapticNotification('impact');
     });
 
-    // Game loop
+    // Game loop with animation
+    let glowPhase = 0;
     function gameLoop() {
       ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       drawBg();
-      // draw snaps
+      glowPhase += 0.05;
+      const glow = Math.sin(glowPhase) * 5 + 10;
+      ctx.shadowBlur = glow;
+      ctx.shadowColor = '#00ffff';
       snapPositions.forEach(pos => drawSnap(pos, targetPos && pos === targetPos));
-      // other vehicles
+      ctx.shadowBlur = 0;
       otherVehicles.forEach(v => drawVehicle(v, v.x, v.y));
-      // player
       drawVehicle(playerVehicle, playerVehicle.x, playerVehicle.y, dragging);
+      if (guideLines) {
+        ctx.beginPath();
+        ctx.moveTo(playerVehicle.x, playerVehicle.y);
+        if (targetPos) ctx.lineTo(targetPos.x, targetPos.y);
+        ctx.strokeStyle = 'rgba(0,255,255,0.5)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+      }
       requestAnimationFrame(gameLoop);
     }
 
-    // Start when background loads (or start anyway if image slow)
-    bgImg.onload = () => {
-      updateSnapPositions();
-      nextChallenge();
-      gameLoop();
-    };
-    // fallback: start even if bg doesn't load quickly
-    setTimeout(() => {
-      if (!bgImg.complete) {
+    // Start
+    let imagesLoaded = 0;
+    const totalImages = Object.keys(vehicleImages).length + 1; // + bg
+    function checkLoaded() {
+      imagesLoaded++;
+      if (imagesLoaded === totalImages) {
         updateSnapPositions();
         nextChallenge();
         gameLoop();
       }
-    }, 800);
+    }
+    bgImg.onload = checkLoaded;
+    Object.values(vehicleImages).forEach(img => img.onload = checkLoaded);
+
+    // Fallback start
+    setTimeout(() => {
+      if (imagesLoaded < totalImages) {
+        updateSnapPositions();
+        nextChallenge();
+        gameLoop();
+      }
+    }, 1500);
 
   </script>
 </body>
 </html>
+```
