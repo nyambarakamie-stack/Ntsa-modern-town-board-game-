@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NTSA MTB Trainer Game</title>
+  <style>
+    html,body { height:100%; margin:0; }
+    body { margin: 0; overflow: hidden; background: #228B22; font-family: Arial, sans-serif; }
+    #game { display: block; cursor: grab; width:100%; height:100%; }
+    #game.dragging { cursor: grabbing; }
+    #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 10px; z-index: 10; }
+    #challenge { font-size: 18px; margin-bottom: 10px; max-width: 320px; }
+    #score { font-size: 24px; }
+    #level { font-size: 16px; }
+    button { background: #4CAF50; color: white; border: none; padding: 8px 10px; margin: 4px; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #45a049; }
+  </style>
+</head>
+<body>
+  <canvas id="game" aria-label="NTSA MTB Trainer canvas"></canvas>
+
+  <div id="ui" role="region" aria-label="game controls">
+    <div id="score">Score: 0</div>
+    <div id="level">Level: Motorcycle</div>
+    <div id="challenge">Training: Drag the vehicle to the target!</div>
+    <div>
+      <button id="resetBtn">Reset</button>
+      <button id="nextLevelBtn">Next Level</button>
+      <button id="hintBtn">Hint (Stars)</button>
+    </div>
+  </div>
+
+  <script>
+    // Safe access to Telegram WebApp object (if running inside Telegram WebApp)
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+
+    // Try to initialize Telegram WebApp safely (guard against it not being present)
+    try {
+      if (tg) {
+        tg.expand && tg.expand();
+        tg.ready && tg.ready();
+        // Configure main button as a share/send-score button.
+        if (tg.MainButton) {
+          tg.MainButton.setText && tg.MainButton.setText('Share Score');
+          tg.MainButton.show && tg.MainButton.show();
+          // Send score to the bot when pressed (sendData is supported by Web Apps)
+          tg.MainButton.onClick && tg.MainButton.onClick(() => {
+            try { tg.sendData && tg.sendData(JSON.stringify({ type: 'share_score', score })); }
+            catch (e) { console.warn('tg.sendData failed', e); }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Telegram WebApp initialization error', e);
+    }
+
+    // Haptic feedback helper (guarded)
+    function hapticNotification(kind) {
+      try {
+        if (!tg || !tg.HapticFeedback) return;
+        if (typeof tg.HapticFeedback.notificationOccurred === 'function') {
+          tg.HapticFeedback.notificationOccurred(kind);
+        } else if (typeof tg.HapticFeedback.impactOccurred === 'function') {
+          // fallback for different implementations
+          tg.HapticFeedback.impactOccurred(kind === 'success' ? 'light' : 'medium');
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // Canvas and state
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    let score = 0;
+    let currentLevel = 0;
+    let dragging = false;
+    let dragOffset = { x: 0, y: 0 };
+    let playerVehicle = { x: 100, y: 100, type: 'moto', color: '#FF0000' };
+    let otherVehicles = [];
+    let targetPos = null;
+    let snapPositions = [];
+
+    // Responsive canvas
+    function resize() {
+      // Use devicePixelRatio to keep canvas sharp on high-DPI displays
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.max(window.innerWidth, 320);
+      const height = Math.max(window.innerHeight, 240);
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      updateSnapPositions(); // recompute snap points when size changes
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Background image (keep remote, but guard draw until loaded)
+    const bgImg = new Image();
+    bgImg.crossOrigin = "anonymous";
+    bgImg.src = 'https://pbs.twimg.com/media/ELA4E0wXkAAMxii.jpg';
+
+    // Compute snap positions based on canvas CSS size (not pixel buffer)
+    function updateSnapPositions() {
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      snapPositions = [
+        { x: 0.1 * w, y: 0.3 * h, label: 'Major Rd L1' },
+        { x: 0.2 * w, y: 0.3 * h, label: 'Major Rd L2' },
+        { x: 0.3 * w, y: 0.3 * h, label: 'Major Rd L3' },
+        { x: 0.4 * w, y: 0.3 * h, label: 'Major Rd L4' },
+        { x: 0.5 * w, y: 0.4 * h, label: 'Roundabout' },
+        { x: 0.6 * w, y: 0.3 * h, label: 'Minor Rd L1' },
+        { x: 0.7 * w, y: 0.3 * h, label: 'Minor Rd L2' },
+        { x: 0.8 * w, y: 0.3 * h, label: 'One-Way' },
+        { x: 0.4 * w, y: 0.6 * h, label: 'Angle Park 1' },
+        { x: 0.45 * w, y: 0.6 * h, label: 'Angle Park 2' },
+        { x: 0.3 * w, y: 0.7 * h, label: 'Flush Park' },
+        { x: 0.5 * w, y: 0.5 * h, label: 'Ped X' },
+        { x: 0.2 * w, y: 0.5 * h, label: 'Stop' },
+        { x: 0.6 * w, y: 0.7 * h, label: 'Give Way' }
+      ];
+    }
+
+    // Levels and challenges
+    const levels = ['moto', 'car', 'bus', 'trailer'];
+    const levelNames = ['Motorcycle', 'Saloon Car', 'Bus', 'Trailer'];
+
+    const challenges = {
+      0: [
+        { desc: 'Place motorcycle in angle parking (shortest route).', target: 8, others: [] },
+        { desc: 'Behind car on minor road.', target: 6, others: [{ type: 'car', pos: 7 }] },
+        { desc: 'Enter roundabout lane 1.', target: 4, others: [] }
+      ],
+      1: [
+        { desc: 'Park saloon in flush parking (reverse sim).', target: 10, others: [] },
+        { desc: 'Overtake to lane 2 on major rd.', target: 1, others: [{ type: 'car', pos: 0 }] },
+        { desc: 'Exit roundabout no lane change.', target: 3, others: [] }
+      ],
+      2: [
+        { desc: 'Bus to one-way behind trailer.', target: 7, others: [{ type: 'trailer', pos: 9 }] },
+        { desc: 'Give way at junction.', target: 12, others: [] },
+        { desc: 'No parking on yellow kerb.', target: 2, others: [] }
+      ],
+      3: [
+        { desc: 'Trailer to flush parking only (last option).', target: 10, others: [] },
+        { desc: 'Longest correct route to minor rd.', target: 6, others: [{ type: 'bus', pos: 5 }] },
+        { desc: 'No tight turns, behind bus.', target: 11, others: [{ type: 'bus', pos: 13 }] }
+      ]
+    };
+
+    let currentChallenge = 0;
+
+    // Draw helpers
+    function drawBg() {
+      // draw background only when image is available
+      if (bgImg && bgImg.complete && bgImg.naturalWidth) {
+        ctx.drawImage(bgImg, 0, 0, canvas.clientWidth, canvas.clientHeight);
+      } else {
+        // fallback plain background
+        ctx.fillStyle = '#2b8a2b';
+        ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      }
+    }
+
+    function drawVehicle(v, x, y, selected = false) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.shadowColor = selected ? 'yellow' : 'black';
+      ctx.shadowBlur = 10;
+      const size = { moto: 20, car: 30, bus: 40, trailer: 50 }[v.type] || 30;
+      ctx.fillStyle = v.color || '#FF0000';
+      if (v.type === 'moto') {
+        ctx.fillRect(-10, -5, 20, 10);
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(-8, 0, 4, 0, Math.PI * 2);
+        ctx.arc(8, 0, 4, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (v.type === 'car') {
+        ctx.fillRect(-15, -8, 30, 16);
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(-10, 8, 6, 0, Math.PI * 2);
+        ctx.arc(10, 8, 6, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (v.type === 'bus') {
+        ctx.fillRect(-20, -10, 40, 20);
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(-15, 12, 8, 0, Math.PI * 2);
+        ctx.arc(15, 12, 8, 0, Math.PI * 2);
+        ctx.fill();
+      } else { // trailer
+        ctx.fillRect(-25, -12, 50, 24); // cab
+        ctx.fillRect(-10, 12, 35, 30); // trailer
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(-20, 10, 8, 0, Math.PI * 2);
+        ctx.arc(5, 40, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawSnap(pos, isTarget = false) {
+      ctx.beginPath();
+      ctx.fillStyle = isTarget ? 'rgba(0,160,0,0.9)' : 'rgba(255,255,0,0.5)';
+      ctx.arc(pos.x, pos.y, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = 'white';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText((pos.label || '').slice(0, 3), pos.x, pos.y + 4);
+    }
+
+    // Simple animation to target (linear)
+    let animProgress = 0;
+    function animateToTarget(startX, startY, endX, endY, cb) {
+      animProgress = 0;
+      function step() {
+        animProgress += 0.06;
+        if (animProgress >= 1) {
+          playerVehicle.x = endX;
+          playerVehicle.y = endY;
+          animProgress = 0;
+          cb && cb();
+          return;
+        }
+        playerVehicle.x = startX + (endX - startX) * animProgress;
+        playerVehicle.y = startY + (endY - startY) * animProgress;
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function nextChallenge() {
+      const lvlChallenges = challenges[currentLevel];
+      if (!lvlChallenges || !lvlChallenges.length) return;
+      const lvl = lvlChallenges[currentChallenge];
+      // start position
+      playerVehicle.x = canvas.clientWidth * 0.05;
+      playerVehicle.y = canvas.clientHeight * 0.5;
+      playerVehicle.type = levels[currentLevel];
+      playerVehicle.color = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00'][currentLevel];
+      otherVehicles = lvl.others.map(o => {
+        const pos = snapPositions[o.pos] || { x: canvas.clientWidth * 0.9, y: canvas.clientHeight * 0.5 };
+        return { ...o, x: pos.x, y: pos.y, color: '#888' };
+      });
+      targetPos = snapPositions[lvl.target] || null;
+      document.getElementById('challenge').textContent = lvl.desc;
+      // advance pointer for next call
+      currentChallenge = (currentChallenge + 1) % lvlChallenges.length;
+    }
+
+    function checkDrop(x, y) {
+      // find nearest snap
+      const nearest = snapPositions.reduce((closest, pos) => {
+        const dist = Math.hypot(x - pos.x, y - pos.y);
+        return dist < closest.dist ? { pos, dist } : closest;
+      }, { pos: null, dist: Infinity });
+
+      if (nearest.pos && nearest.dist < 30) {
+        if (targetPos && Math.hypot(nearest.pos.x - targetPos.x, nearest.pos.y - targetPos.y) < 20) {
+          // Correct placement
+          score += 10 * (currentLevel + 1);
+          hapticNotification('success');
+          document.getElementById('score').textContent = `Score: ${score}`;
+          animateToTarget(playerVehicle.x, playerVehicle.y, targetPos.x, targetPos.y, () => {
+            // small delay then next challenge
+            setTimeout(nextChallenge, 600);
+          });
+          return;
+        } else {
+          hapticNotification('error');
+        }
+      }
+
+      // Wrong: reset player to starting lane
+      playerVehicle.x = canvas.clientWidth * 0.05;
+      playerVehicle.y = canvas.clientHeight * 0.5;
+    }
+
+    // Pointer handling (pointer events unify mouse/touch)
+    canvas.addEventListener('pointerdown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const dist = Math.hypot(mx - playerVehicle.x, my - playerVehicle.y);
+      if (dist < 50) {
+        dragging = true;
+        dragOffset.x = playerVehicle.x - mx;
+        dragOffset.y = playerVehicle.y - my;
+        canvas.classList.add('dragging');
+        canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
+      }
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const rect = canvas.getBoundingClientRect();
+      playerVehicle.x = e.clientX - rect.left + dragOffset.x;
+      playerVehicle.y = e.clientY - rect.top + dragOffset.y;
+    });
+
+    canvas.addEventListener('pointerup', (e) => {
+      if (dragging) {
+        checkDrop(playerVehicle.x, playerVehicle.y);
+        dragging = false;
+        canvas.classList.remove('dragging');
+        canvas.releasePointerCapture && canvas.releasePointerCapture(e.pointerId);
+      }
+    });
+
+    // UI buttons
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      nextChallenge();
+    });
+    document.getElementById('nextLevelBtn').addEventListener('click', () => {
+      currentLevel = Math.min(3, currentLevel + 1);
+      currentChallenge = 0;
+      document.getElementById('level').textContent = `Level: ${levelNames[currentLevel]}`;
+      nextChallenge();
+    });
+    document.getElementById('hintBtn').addEventListener('click', () => {
+      // show hint; monetize later with Telegram Stars / payments API if desired
+      alert('Hint: Use the shortest correct route. Avoid tight turns for larger vehicles.');
+      hapticNotification('impact');
+    });
+
+    // Game loop
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      drawBg();
+      // draw snaps
+      snapPositions.forEach(pos => drawSnap(pos, targetPos && pos === targetPos));
+      // other vehicles
+      otherVehicles.forEach(v => drawVehicle(v, v.x, v.y));
+      // player
+      drawVehicle(playerVehicle, playerVehicle.x, playerVehicle.y, dragging);
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Start when background loads (or start anyway if image slow)
+    bgImg.onload = () => {
+      updateSnapPositions();
+      nextChallenge();
+      gameLoop();
+    };
+    // fallback: start even if bg doesn't load quickly
+    setTimeout(() => {
+      if (!bgImg.complete) {
+        updateSnapPositions();
+        nextChallenge();
+        gameLoop();
+      }
+    }, 800);
+
+  </script>
+</body>
+</html>
